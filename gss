@@ -42,6 +42,17 @@ has_upstream() {
   git rev-parse --verify "$branch_name@{upstream}" >/dev/null 2>&1
 }
 
+base_ref() {
+  local remote=$(git rev-parse --abbrev-ref "@{upstream}" 2>/dev/null | grep -oE "^\w+")
+  remote=${remote:-$(git remote | head -n 1)}
+
+  if [ -n "$remote" ] && git rev-parse --verify "$remote/HEAD" >/dev/null 2>&1; then
+    echo "$remote/HEAD"
+  else
+    echo "HEAD"
+  fi
+}
+
 stash_push_changes() {
   if ! has_changes; then
     echo "Nothing to stash"
@@ -68,10 +79,10 @@ stash_apply_changes() {
     read -p ": Apply? [Y/n] " yn
 
     local n_changes=$(echo $changes_message | grep -oE "\d+")
-    clear_lines $((n_changes+2))
+    del_ln $((n_changes+2))
 
     case "$yn" in
-      [Nn]*)
+      [Nn]|[Nn][Oo])
         echo "Stash kept"
         ;;
       *)
@@ -87,11 +98,14 @@ sync_branch() {
   local n_ahead n_behind
   read n_ahead n_behind <<< $status
 
+  local upstream=$(git rev-parse --abbrev-ref "@{upstream}")
+
   if [ $n_behind -ne 0 ]; then
+    echo ": $branch_name...$upstream [$n_behind behind]"
     read -p "Pull from remote? [Y/n] " yn
-    clear_lines
+    del_ln 2
     case "$yn" in
-      [Nn*])
+      [Nn]|[Nn][Oo])
         return
         ;;
       *)
@@ -101,10 +115,11 @@ sync_branch() {
   fi
 
   if [ $n_ahead -ne 0 ]; then
+    echo ": $branch_name...$upstream [$n_ahead ahead]"
     read -p "Push to remote? [Y/n] " yn
-    clear_lines
+    del_ln 2
     case "$yn" in
-      [Nn*])
+      [Nn]|[Nn][Oo])
         return
         ;;
       *)
@@ -114,16 +129,16 @@ sync_branch() {
   fi
 }
 
-clear_lines() {
+del_ln() {
   local n="${1:-1}"
-  local codes="\033[A\033[2K\r"
-
   for ((i=0;i<n;i++)); do
-    echo -en $codes
+    echo -en "\033[A\033[2K\r"
   done
 }
 
+echo "Fetching..."
 git fetch --quiet --all
+del_ln
 
 if on_branch; then
   echo "Already on '$branch_name'"
@@ -133,15 +148,15 @@ fi
 if ! branch_exists; then
   echo "Branch '$branch_name' not found"
   read -p "Create a new branch? [Y/n] " yn
-  clear_lines 2
+  del_ln 2
   case "$yn" in
-    [Nn]*)
+    [Nn]|[Nn][Oo])
       echo "Aborting" >&2
       exit 2
       ;;
     *)
       stash_push_changes
-      git switch --create "$branch_name" --no-track origin/HEAD
+      git switch --create "$branch_name" --no-track $(base_ref)
       ;;
   esac
 else
